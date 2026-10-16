@@ -185,9 +185,19 @@ async function askJ(messages) {
     body: JSON.stringify({
       model: 'meta-llama/llama-3.2-11b-vision-instruct:free',
       messages
-    })
+    }),
+    signal: AbortSignal.timeout(60000)
   });
   const body = await res.json();
+  if (!res.ok) {
+    throw new Error(
+      `OpenRouter HTTP ${res.status}: ${
+        // holy syntax bro
+        body.error?.message || 'Openrouter request failed'
+      }`
+    );
+  }
+
   console.log('[AI RAW]', JSON.stringify(body).slice(0, 200));
   if (body.error) throw new Error(body.error.message || JSON.stringify(body.error));
   return (body.choices?.[0]?.message?.content || '').trim() || 'No response.';
@@ -216,9 +226,18 @@ async function askJVision(imageUrl, prompt) {
     body: JSON.stringify({
       model: 'meta-llama/llama-3.2-11b-vision-instruct:free',
       messages
-    })
+    }),
+    signal: AbortSignal.timeout(60000)
   });
   const body = await res.json();
+  if (!res.ok) {
+    throw new Error(
+      `OpenRouter HTTP ${res.status}: ${
+        // same error thing as the askJ thingy
+        body.error?.message || 'Openrouter request failed'
+      }`
+    );
+  }
   console.log('[VISION RAW]', JSON.stringify(body).slice(0, 300));
   if (body.error) throw new Error(body.error.message || JSON.stringify(body.error));
   return (body.choices?.[0]?.message?.content || '').trim() || 'Could not read the image.';
@@ -549,7 +568,7 @@ const commands = {
       `Mode: \`${mode}\` | Active sessions: ${chatSessions.size}\n` +
       `Cooldown: \`${cooldownMs ? cooldownMs/1000+'s' : 'off'}\`\n` +
       `Personality: \`${customPersonality ? 'Custom' : 'Default'}\`\n` +
-      `AI: Cloudflare (Llama 3.1 8B) | Memory: ${SUPABASE_URL ? 'Supabase ✅' : 'Disabled'}`
+      `AI: OpenRouter (Llama 3.1 8B) | Memory: ${SUPABASE_URL ? 'Supabase ✅' : 'Disabled'}`
     );
   },
 
@@ -793,10 +812,22 @@ client.on('messageCreate', async msg => {
       const session = chatSessions.get(userId);
       if (!session) return;
       if (onCooldown(userId)) { console.log('[SKIP] Cooldown.'); return; }
-      session.history.push({ role: 'user', content });
-      if (session.history.length > 20) session.history = session.history.slice(-20);
       const reply = await jReply(msg, content, session.history);
-      session.history.push({ role: 'assistant', content: reply });
+
+      session.history.push(
+        {
+          role: 'user',
+          content: content || '[Image sent with no text]'
+        },
+        {
+          role: 'assistant',
+          content: reply
+        }
+      );
+
+      if (session.history.length > 20) {
+        session.history = session.history.slice(-20);
+      }
       return;
     }
 
